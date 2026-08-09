@@ -1,5 +1,22 @@
 import Foundation
 @testable import SoCoKit
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
+
+func systemBind(
+    _ socket: Int32,
+    _ address: UnsafePointer<sockaddr>,
+    _ length: socklen_t
+) -> Int32 {
+    #if os(Linux)
+    Glibc.bind(socket, address, length)
+    #else
+    Darwin.bind(socket, address, length)
+    #endif
+}
 
 final class MockHTTPClient: HTTPClient {
     struct Request {

@@ -5,7 +5,6 @@ import Glibc
 #else
 import Darwin
 #endif
-
 private final class FakeEventListener: EventListening {
     var isRunning = false
     var address: (ip: String, port: UInt16)? = ("192.168.1.50", 1400)
@@ -337,11 +336,7 @@ final class EventsTests: XCTestCase {
         _ = "127.0.0.1".withCString { inet_pton(AF_INET, $0, &address.sin_addr) }
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                #if os(Linux)
-                Glibc.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-                #else
-                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-                #endif
+                systemBind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         guard bound == 0 else { throw SoCoError.unknown("Could not reserve test port") }

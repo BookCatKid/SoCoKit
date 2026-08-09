@@ -5,7 +5,6 @@ import Glibc
 #else
 import Darwin
 #endif
-
 final class DiscoveryTests: XCTestCase {
     private let interfaces = [
         IPv4InterfaceInfo(address: "192.168.0.1", prefixLength: 24),
@@ -259,11 +258,7 @@ final class DiscoveryTests: XCTestCase {
         _ = "127.0.0.1".withCString { inet_pton(AF_INET, $0, &address.sin_addr) }
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                #if os(Linux)
-                Glibc.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-                #else
-                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-                #endif
+                systemBind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         guard bound == 0, listen(fd, 4) == 0 else {
