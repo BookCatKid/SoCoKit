@@ -131,7 +131,18 @@ public extension SoCo {
         }
         return track
     }
-    func currentMediaInfo()throws->[String:String] { let r=try avTransport.sendCommand("GetMediaInfo",arguments:[("InstanceID","0")]); var m=["uri":r["CurrentURI"] ?? "","channel":""]; if let md=r["CurrentURIMetaData"],!md.isEmpty,let tree=try? XMLTree(md){m["channel"]=tree.root?.descendants(named:"title").first?.text ?? ""}; return m }
+    func currentMediaInfo()throws->[String:String] {
+        let r=try avTransport.sendCommand("GetMediaInfo",arguments:[("InstanceID","0")])
+        var m=["uri":r["CurrentURI"] ?? "","channel":""]
+        if let md=r["CurrentURIMetaData"],!md.isEmpty,let tree=try? XMLTree(md){
+            let root=tree.root
+            m["channel"]=root?.descendants(named:"title").first?.text ?? ""
+            if let art=root?.descendants(named:"albumArtURI").first?.text, !art.isEmpty {
+                m["album_art"]=musicLibrary.buildAlbumArtFullURI(art)
+            }
+        }
+        return m
+    }
     func currentTransportInfo()throws->[String:String] { let r=try avTransport.sendCommand("GetTransportInfo",arguments:[("InstanceID","0")]); return ["current_transport_state":r["CurrentTransportState"] ?? "","current_transport_status":r["CurrentTransportStatus"] ?? "","current_transport_speed":r["CurrentSpeed"] ?? ""] }
     func availableActions()throws->[String] { let a=try avTransport.sendCommand("GetCurrentTransportActions",arguments:[("InstanceID","0")])["Actions"] ?? ""; return a.components(separatedBy:", ").filter{!$0.isEmpty}.map{$0.components(separatedBy:"_").last ?? $0} }
 }
