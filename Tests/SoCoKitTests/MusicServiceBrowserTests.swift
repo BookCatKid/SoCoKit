@@ -526,6 +526,94 @@ final class MusicServiceBrowserTests: XCTestCase {
         XCTAssertEqual(try client.getMetadata().records.count, 2)
     }
 
+    func testBrowseItemPlayabilityCoversSMAPIAndContentTracks() {
+        let smapi = MusicServiceBrowseItem(
+            itemID: "track:1", title: "Track", kind: "mediaMetadata", itemType: "track"
+        )
+        let content = MusicServiceBrowseItem(
+            itemID: "content:1", title: "Track", kind: "mediaMetadata",
+            sourceTransport: .content
+        )
+        let explicitlyDisabled = MusicServiceBrowseItem(
+            itemID: "track:2", title: "Disabled", kind: "mediaMetadata", itemType: "track",
+            raw: ["canPlay": .bool(false)]
+        )
+
+        XCTAssertTrue(smapi.canPlay)
+        XCTAssertTrue(content.canPlay)
+        XCTAssertFalse(explicitlyDisabled.canPlay)
+    }
+
+    func testPlaybackDescriptorPrefersProviderMediaURIAndCarriesAccountDescriptor() throws {
+        let oldLoader = MusicService.descriptorLoader
+        defer {
+            MusicService.descriptorLoader = oldLoader
+            MusicService.resetDescriptorCache()
+        }
+        MusicService.descriptorLoader = { _ in self.descriptorXML() }
+        MusicService.resetDescriptorCache()
+
+        let http = MockHTTPClient()
+        let device = try SoCo("192.0.2.25", httpClient: http)
+        device._householdID = "Sonos_Test"
+        device._uid = "RINCON_TEST"
+        http.enqueue(text: playerDeviceIDResponse)
+        http.enqueue(text: mediaURIResponse("x-sonos-http:provider-track"))
+
+        let browser = try MusicServiceBrowser(
+            serviceName: "Example", account: configuredAccount(), device: device
+        )
+        let item = MusicServiceBrowseItem(
+            itemID: "track:abc", title: "Playable", kind: "mediaMetadata", itemType: "track"
+        )
+        let descriptor = try browser.playbackDescriptor(for: item)
+
+        XCTAssertEqual(descriptor.uri, "x-sonos-http:provider-track")
+        XCTAssertTrue(descriptor.metadata.contains("SA_RINCON52231_X_#Svc52231-1a2b3c4d-Token"))
+        XCTAssertTrue(descriptor.metadata.contains("Playable"))
+        XCTAssertTrue(requestBodyText(try XCTUnwrap(http.requests.last)).contains("<getMediaURI"))
+        XCTAssertTrue(requestBodyText(try XCTUnwrap(http.requests.last)).contains("<id>track:abc</id>"))
+    }
+
+    func testPlaybackDescriptorFallbackUsesActualAccountSerialNumber() throws {
+        let oldLoader = MusicService.descriptorLoader
+        defer {
+            MusicService.descriptorLoader = oldLoader
+            MusicService.resetDescriptorCache()
+        }
+        MusicService.descriptorLoader = { _ in self.descriptorXML() }
+        MusicService.resetDescriptorCache()
+
+        let http = MockHTTPClient()
+        let device = try SoCo("192.0.2.26", httpClient: http)
+        device._householdID = "Sonos_Test"
+        device._uid = "RINCON_TEST"
+        http.enqueue(text: playerDeviceIDResponse)
+        http.enqueue(statusCode: 500, text: "provider failure")
+
+        let browser = try MusicServiceBrowser(
+            serviceName: "Example", account: configuredAccount(), device: device
+        )
+        let item = MusicServiceBrowseItem(
+            itemID: "track:abc", title: "Playable", kind: "mediaMetadata", itemType: "track"
+        )
+        let descriptor = try browser.playbackDescriptor(for: item)
+
+        XCTAssertTrue(descriptor.uri.hasPrefix("soco://0ffffffftrack%3Aabc"))
+        XCTAssertTrue(descriptor.uri.contains("sid=204"))
+        XCTAssertTrue(descriptor.uri.contains("sn=35"))
+    }
+
+    private func mediaURIResponse(_ uri: String) -> String {
+        """
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+          <s:Body><getMediaURIResponse xmlns="http://www.sonos.com/Services/1.1">
+            <getMediaURIResult>\(uri)</getMediaURIResult>
+          </getMediaURIResponse></s:Body>
+        </s:Envelope>
+        """
+    }
+
     // MARK: Fixtures
 
     private func makeService(
