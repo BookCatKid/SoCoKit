@@ -337,7 +337,11 @@ final class EventsTests: XCTestCase {
         _ = "127.0.0.1".withCString { inet_pton(AF_INET, $0, &address.sin_addr) }
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                #if os(Linux)
+                Glibc.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                #else
                 Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                #endif
             }
         }
         guard bound == 0 else { throw SoCoError.unknown("Could not reserve test port") }
