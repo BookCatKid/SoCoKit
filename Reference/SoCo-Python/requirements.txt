@@ -1,5 +1,0 @@
-requests
-xmltodict
-ifaddr
-appdirs
-lxml

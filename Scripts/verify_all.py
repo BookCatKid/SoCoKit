@@ -19,9 +19,6 @@ def main() -> int:
     run("swift", "build", "-c", "release")
     with open(ROOT / ".build" / "package-dump.json", "w", encoding="utf-8") as handle:
         run("swift", "package", "dump-package", stdout=handle)
-    run(sys.executable, "Scripts/verify_public_api.py")
-    run(sys.executable, "Scripts/verify_service_actions.py")
-    run(sys.executable, "Scripts/verify_commentary.py")
     print("All deterministic SoCoKit verification gates passed.")
     return 0
 

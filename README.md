@@ -2,7 +2,7 @@
 
 A native Swift port of **SoCo 0.32.0-dev** for controlling Sonos speakers from macOS and iOS.
 
-This repository is a Swift port derived from the Python SoCo project. The untouched upstream source, license, authorship, and tests are preserved under `Reference/SoCo-Python`. The goal of the port is behavioral compatibility with SoCo's Sonos/UPnP implementation while presenting APIs that make sense in Swift.
+SoCoKit is a native Swift implementation of the SoCo Sonos/UPnP API. Its upstream license and attribution are preserved in `THIRD_PARTY_NOTICES.md`. The goal of the port is behavioral compatibility with SoCo's Sonos/UPnP implementation while presenting APIs that make sense in Swift.
 
 ## Platform support
 
@@ -32,16 +32,6 @@ The port covers the original project's major subsystems:
 - Caching, XML and utility helpers
 
 See `PORTING_AUDIT.md` for a module-by-module map and the deliberate Swift adaptations.
-
-## Comments and original explanations
-
-The explanatory material from SoCo was treated as part of the source, not disposable comments.
-
-- The untouched Python project is preserved under `Reference/SoCo-Python`.
-- `Sources/SoCoKit/OriginalSoCoCommentary.swift` preserves **all 1,623 original inline comments and 670 original docstrings**, annotated with their original file/line locations.
-- Important Sonos-specific warnings, protocol quirks and rationale are also placed directly beside their corresponding Swift implementations.
-
-This gives the Swift source local context while retaining a complete searchable copy of the original commentary even where Python and Swift structure differ.
 
 ## Basic use
 
@@ -149,12 +139,6 @@ Or run the Swift test suite by itself:
 swift test --parallel
 ```
 
-The port is verified with the Swift 6 toolchain on macOS and Linux-compatible SwiftPM environments. The current local suite contains protocol-, parsing-, socket-, service-, topology-, SMAPI-, plugin-, alarm-, snapshot- and core-behavior tests. See `VERIFICATION.md` for the exact result and limitations, and `UPSTREAM_TEST_MAPPING.md` for how the Python tests map to Swift.
-
-### Real-Sonos integration tests
-
-The original repository contains integration tests that intentionally require a real Sonos household and an explicit speaker IP. Those original tests are retained under `Reference/SoCo-Python/tests/test_integration.py`. The Swift APIs have additionally been exercised read-only against a real household, including configured music-service account discovery and browsing; provider-specific behavior can still vary by account, service, and firmware. Do not treat a mocked UPnP response as proof that a particular current Sonos firmware accepts every command.
-
 ## Important Swift adaptations
 
 Python features that do not have a direct Swift equivalent are represented explicitly rather than emulated unsafely:
@@ -169,11 +153,9 @@ Python features that do not have a direct Swift equivalent are represented expli
 ## Reference and audit files
 
 - `PORTING_AUDIT.md` — module/API mapping and language adaptations
-- `UPSTREAM_TEST_MAPPING.md` — original pytest inventory and Swift coverage category
-- `VERIFICATION.md` — exact build/test verification and environmental limits
-- `Reference/SoCo-Python` — untouched source project used as the behavioral reference
-- `Sources/SoCoKit/OriginalSoCoCommentary.swift` — searchable preservation of all source commentary/docstrings
+- `UPSTREAM_TEST_MAPPING.md` — Swift test coverage map
+- `THIRD_PARTY_NOTICES.md` — upstream SoCo attribution and license
 
 ## License and attribution
 
-SoCoKit is licensed under the MIT License. It is a Swift port derived from the Python [SoCo](https://github.com/SoCo/SoCo) project, originally created by Rahim Sonawalla with contributions from the SoCo community. The upstream copyright notice, complete authors list, and license are preserved in `Reference/SoCo-Python/AUTHORS.rst` and `Reference/SoCo-Python/LICENSE.rst`; the root `LICENSE` repeats the required attribution for the derived project.
+SoCoKit is licensed under the MIT License. It is derived from the Python [SoCo](https://github.com/SoCo/SoCo) project, originally created by Rahim Sonawalla with contributions from the SoCo community. See `THIRD_PARTY_NOTICES.md` for the upstream notice and license.

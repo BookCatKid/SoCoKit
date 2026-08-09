@@ -1,6 +1,6 @@
 # SoCo → SoCoKit porting audit
 
-This file records how the Python source tree maps to the Swift implementation. `Reference/SoCo-Python` is the immutable reference copy.
+This file records how the upstream SoCo source maps to the Swift implementation.
 
 ## Module map
 
@@ -79,21 +79,3 @@ Swift's `SoCoError` enum retains semantic distinctions (`upnp`, `http`, `musicSe
 ### Request timeout `None`
 
 Python permits global `REQUEST_TIMEOUT = None` to mean potentially infinite waits. SoCoKit's global request timeout is a concrete `TimeInterval`; individual APIs that explicitly support infinite Sonos subscription timeout model that separately. This avoids passing an undefined timeout into Foundation/URLSession behavior.
-
-## Comment/documentation preservation
-
-The original source contains 1,623 inline comments and 670 docstrings. They are all retained verbatim in `OriginalSoCoCommentary.swift` with file/line markers, and the untouched Python source remains under `Reference/`. Protocol-critical notes are additionally colocated with the Swift implementation.
-
-## Mechanical completeness gates
-
-The repository includes executable audits in `Scripts/` which verify that:
-
-- all 547 public upstream Python declarations are either present as compiled Swift API or explicitly reviewed as a language/backend adaptation;
-- all 66 upstream SOAP actions match Swift argument names and literal values; and
-- all 1,623 original inline comments plus 670 docstrings are preserved.
-
-These checks inspect the compiled Swift symbol graph where appropriate, so preserved Python commentary cannot create false API matches.
-
-## Verification boundary
-
-The Swift code is compiled and unit/protocol tested in this repository. The conversion environment has no Xcode, iOS simulator or physical Sonos household, so Apple sandbox/entitlement behavior and current-firmware acceptance of live commands are not claimed as hardware-verified. See `VERIFICATION.md`.

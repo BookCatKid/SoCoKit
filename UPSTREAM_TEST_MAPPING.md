@@ -1,9 +1,8 @@
 # Upstream test mapping
 
-Original Python test functions are listed below so omissions are visible. Several pytest functions are parameterized; the function count is therefore not the same as the number of pytest cases.
+This document records the parity categories used by the Swift test suite. Several source tests were parameterized; the function count is therefore not the same as the number of test cases.
 
-`PORTED / CONSOLIDATED` means several narrow pytest assertions are represented by a smaller number of Swift tests that exercise the same wire/parsing behavior. `LIVE HARDWARE` is not called passed in this environment.
-The supplied Python tree contains **258 named `test_*` functions** across these files. The final Swift suite is independently counted in `VERIFICATION.md`/the build output.
+`PORTED / CONSOLIDATED` means several narrow upstream assertions are represented by a smaller number of Swift tests exercising the same wire/parsing behavior. `LIVE HARDWARE` identifies scenarios requiring a real Sonos system.
 
 ## `test_alarms.py` — PORTED
 
@@ -176,7 +175,7 @@ Original functions (6):
 
 ## `test_integration.py` — LIVE HARDWARE / PROTOCOL EQUIVALENTS
 
-Swift coverage: Original live-speaker procedure retained under `Reference/`; command/parsing contracts are covered by `CoreTests.swift`, `CoreAdvancedTests.swift`, `MusicLibraryTests.swift`, and topology tests. Not executed on hardware here.
+Swift coverage: command/parsing contracts are covered by `CoreTests.swift`, `CoreAdvancedTests.swift`, `MusicLibraryTests.swift`, and topology tests. Live hardware procedures require an external Sonos system.
 
 Original functions (42):
 
