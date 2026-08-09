@@ -2,7 +2,7 @@
 
 A native Swift port of **SoCo 0.32.0-dev** for controlling Sonos speakers from macOS and iOS.
 
-This repository was converted from the Python source included under `Reference/SoCo-Python`. The goal of the port is behavioral compatibility with SoCo's Sonos/UPnP implementation while presenting APIs that make sense in Swift.
+This repository is a Swift port derived from the Python SoCo project. The untouched upstream source, license, authorship, and tests are preserved under `Reference/SoCo-Python`. The goal of the port is behavioral compatibility with SoCo's Sonos/UPnP implementation while presenting APIs that make sense in Swift.
 
 ## Platform support
 
@@ -149,11 +149,11 @@ Or run the Swift test suite by itself:
 swift test --parallel
 ```
 
-The final conversion was verified with Swift 6.2.1 on Linux. The current local suite contains protocol-, parsing-, socket-, service-, topology-, SMAPI-, plugin-, alarm-, snapshot- and core-behavior tests. See `VERIFICATION.md` for the exact result and limitations, and `UPSTREAM_TEST_MAPPING.md` for how the Python tests map to Swift.
+The port is verified with the Swift 6 toolchain on macOS and Linux-compatible SwiftPM environments. The current local suite contains protocol-, parsing-, socket-, service-, topology-, SMAPI-, plugin-, alarm-, snapshot- and core-behavior tests. See `VERIFICATION.md` for the exact result and limitations, and `UPSTREAM_TEST_MAPPING.md` for how the Python tests map to Swift.
 
 ### Real-Sonos integration tests
 
-The original repository contains integration tests that intentionally require a real Sonos household and an explicit speaker IP. Those original tests are retained under `Reference/SoCo-Python/tests/test_integration.py` and their protocol behavior is covered extensively by deterministic Swift mock tests, but they were **not executed against real Sonos hardware in the conversion environment**. Do not treat a mocked UPnP response as proof that a particular current Sonos firmware accepts every command.
+The original repository contains integration tests that intentionally require a real Sonos household and an explicit speaker IP. Those original tests are retained under `Reference/SoCo-Python/tests/test_integration.py`. The Swift APIs have additionally been exercised read-only against a real household, including configured music-service account discovery and browsing; provider-specific behavior can still vary by account, service, and firmware. Do not treat a mocked UPnP response as proof that a particular current Sonos firmware accepts every command.
 
 ## Important Swift adaptations
 
@@ -174,6 +174,6 @@ Python features that do not have a direct Swift equivalent are represented expli
 - `Reference/SoCo-Python` — untouched source project used as the behavioral reference
 - `Sources/SoCoKit/OriginalSoCoCommentary.swift` — searchable preservation of all source commentary/docstrings
 
-## License
+## License and attribution
 
-MIT, matching the original SoCo project. See `LICENSE`.
+SoCoKit is licensed under the MIT License. It is a Swift port derived from the Python [SoCo](https://github.com/SoCo/SoCo) project, originally created by Rahim Sonawalla with contributions from the SoCo community. The upstream copyright notice, complete authors list, and license are preserved in `Reference/SoCo-Python/AUTHORS.rst` and `Reference/SoCo-Python/LICENSE.rst`; the root `LICENSE` repeats the required attribution for the derived project.

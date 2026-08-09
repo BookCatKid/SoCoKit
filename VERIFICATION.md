@@ -2,22 +2,22 @@
 
 ## Environment
 
-- Swift: 6.2.1
-- Host used for conversion verification: Linux x86_64
+- Swift: 6.x toolchain
+- Hosts used for verification: macOS arm64 and Linux SwiftPM environments
 - Package language mode: Swift 5
 - Declared Apple deployment targets: macOS 13+, iOS 16+
-- Xcode/iOS simulator: not available in the conversion environment
-- Physical Sonos household: not available in the conversion environment
+- Xcode/iOS simulator: not exercised in this package-only verification
+- Physical Sonos household: Study was exercised separately with read-only live probes; see the hardware boundary below
 
 ## Checks performed
 
 The complete deterministic gate can be run with:
 
-```fish
+```sh
 python3 Scripts/verify_all.py
 ```
 
-That runs the full Swift tests, release build, package-manifest validation, compiled-symbol public-API audit, SOAP-action audit, and comment/docstring preservation audit.
+That runs the full Swift tests, release build, package-manifest validation, compiled-symbol public-API audit, SOAP-action audit, and comment/docstring preservation audit. The public-API audit locates SwiftPM products on both Linux and macOS and uses the platform's Swift symbol-graph tool.
 
 The source is also scanned for accidental `fatalError`/`preconditionFailure`/new TODO placeholders. The one remaining `FIXME` in `SOAP.swift` is intentionally preserved from the original SoCo source commentary rather than being a newly introduced unfinished item.
 
@@ -60,9 +60,11 @@ The untouched upstream Python tests are retained under `Reference/SoCo-Python/te
 
 ## Hardware-only boundary
 
-Upstream `tests/test_integration.py` is a real-speaker test suite and requires an explicit Sonos IP, a playing queue and careful state restoration. The source is retained unchanged in `Reference/SoCo-Python/tests/test_integration.py`. Its protocol contracts are represented in mock-based Swift tests, but the actual live-device procedure cannot be truthfully marked passed without a Sonos system.
+Upstream `tests/test_integration.py` is a real-speaker test suite and requires an explicit Sonos IP, a playing queue and careful state restoration. The source is retained unchanged in `Reference/SoCo-Python/tests/test_integration.py`. Its protocol contracts are represented in mock-based Swift tests.
 
-Likewise, compiling on Linux does not validate:
+A separate read-only live run against the Study household exercised Swift's public music-service APIs: encrypted configured-account discovery twice, 14 accounts across 12 services, legacy SMAPI browsing, manifest/content browsing, child browsing, searches where advertised, metadata probes, and default in-memory credential refresh. Household identity remained stable and no playback, queue, volume, grouping, alarm, account-linking, or account-mutation operation was used. Pandora was an account/provider-specific failure in that household and is not treated as a universal SoCoKit limitation; search remains provider-dependent.
+
+Live hardware validation does not prove every current firmware/provider combination. Compiling on Linux or macOS does not validate:
 
 - Apple's local-network privacy prompt
 - the required iOS multicast entitlement in a signed physical-device build

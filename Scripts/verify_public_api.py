@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -64,18 +65,70 @@ def public_python_api() -> list[PythonAPI]:
     return result
 
 
-def swift_declarations() -> CompiledSwiftAPI:
-    """Read declarations from Swift's compiled symbol graph, never source text.
+def swift_build_bin_path() -> Path | None:
+    try:
+        result = subprocess.run(
+            ["swift", "build", "--show-bin-path"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    path = Path(result.stdout.strip())
+    return path if path.is_dir() else None
 
-    The repository intentionally contains every upstream Python comment/docstring,
-    so a regex over `.swift` files could produce false matches. The symbol graph is
-    emitted from the compiled public module and therefore contains only real API.
-    """
+
+def symbolgraph_tool() -> str | None:
+    tool = shutil.which("swift-symbolgraph-extract")
+    if tool:
+        return tool
+    try:
+        result = subprocess.run(
+            ["xcrun", "--find", "swift-symbolgraph-extract"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    path = result.stdout.strip()
+    return path if path else None
+
+
+def swift_module_location() -> tuple[Path, str]:
+    bin_path = swift_build_bin_path()
+    if bin_path:
+        product_module = bin_path / "SoCoKit.swiftmodule"
+        if product_module.is_dir():
+            module_files = sorted(product_module.glob("*.swiftmodule"))
+            if module_files:
+                # `-I` must point to the directory containing the module
+                # directory, not to the module directory itself. On Darwin,
+                # symbolgraph extraction also needs a deployment-qualified
+                # target even though SwiftPM names the artifact without it.
+                module_target = module_files[0].stem
+                if module_target.endswith("-apple-macos"):
+                    module_target += "x13.0"
+                return bin_path, module_target
+
+    # Linux SwiftPM's older layout places the public module under a target-triple
+    # Modules directory. Keep this fallback for CI/toolchains using that layout.
     module_dirs = sorted((ROOT / ".build").glob("*-unknown-linux-gnu/debug/Modules"))
-    if not module_dirs:
-        raise RuntimeError("Debug module not found; run `swift build` or `swift test` first")
-    modules = module_dirs[0]
-    target = modules.parents[1].name
+    if module_dirs:
+        return module_dirs[0], module_dirs[0].parents[1].name
+    raise RuntimeError("Debug module not found; run `swift build` or `swift test` first")
+
+
+def swift_declarations() -> CompiledSwiftAPI:
+    """Read declarations from Swift's compiled symbol graph, never source text."""
+    modules, target = swift_module_location()
+    tool = symbolgraph_tool()
+    if tool is None:
+        raise RuntimeError(
+            "swift-symbolgraph-extract not found; install a Swift/Xcode toolchain"
+        )
     names: dict[str, set[str]] = {}
     types: set[str] = set()
     top_level: set[str] = set()
@@ -83,14 +136,28 @@ def swift_declarations() -> CompiledSwiftAPI:
     type_kinds = {"swift.class", "swift.struct", "swift.enum", "swift.protocol", "swift.typealias"}
 
     with tempfile.TemporaryDirectory(prefix="socokit-symbols-") as output:
+        command = [
+            tool,
+            "-module-name", "SoCoKit",
+            "-I", str(modules),
+            "-target", target,
+        ]
+        if "apple" in target:
+            try:
+                sdk = subprocess.run(
+                    ["xcrun", "--show-sdk-path"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+            except (OSError, subprocess.CalledProcessError) as error:
+                raise RuntimeError(
+                    "Apple SDK path unavailable; run this audit with Xcode or a Swift toolchain"
+                ) from error
+            command.extend(["-sdk", sdk])
+        command.extend(["-output-dir", output])
         subprocess.run(
-            [
-                "swift-symbolgraph-extract",
-                "-module-name", "SoCoKit",
-                "-I", str(modules),
-                "-target", target,
-                "-output-dir", output,
-            ],
+            command,
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -122,8 +189,6 @@ def swift_declarations() -> CompiledSwiftAPI:
 
 
 # Python classes whose implementation owner differs from the public Python name.
-# These are owner mappings only; the public compatibility typealias may still retain
-# the Python class name at the module surface.
 OWNER_MAPPINGS: dict[str, str] = {
     "data_structures.py:ListOfMusicInfoItems": "MusicInfoList",
     "events.py:EventServerThread": "EventListener",
@@ -141,16 +206,11 @@ OWNER_MAPPINGS: dict[str, str] = {
 
 
 # Entries here are only needed when the idiomatic/native Swift API necessarily has
-# a different spelling or shape. `target` is checked against the Swift source when
-# possible. `None` is reserved for a reviewed language/backend construct which has
-# no meaningful direct declaration in Swift.
+# a different spelling or shape. `target` is checked against the compiled symbols.
 EXPLICIT_MAPPINGS: dict[str, tuple[str | None, str]] = {
-    # Legacy music-service data structures.
     "ms_data_structures.py:MusicServiceItem.from_xml": ("fromXML", "idiomatic Swift acronym capitalization"),
     "ms_data_structures.py:MusicServiceItem.to_dict": ("dictionary", "Swift computed dictionary property"),
     "ms_data_structures.py:MusicServiceItem.didl_metadata": ("didlMetadataXML", "throwing Swift method for DIDL XML"),
-
-    # Python decorators / idiomatic Swift spellings in core.py.
     "core.py:only_on_master": (None, "Python decorator becomes an internal Swift coordinator guard"),
     "core.py:only_on_soundbars": (None, "Python decorator becomes an internal Swift soundbar guard"),
     "core.py:SoCo.repeat": ("repeatMode", "Swift enum preserves off/all/one rather than Python bool-or-one property"),
@@ -159,21 +219,14 @@ EXPLICIT_MAPPINGS: dict[str, tuple[str | None, str]] = {
     "core.py:SoCo.get_current_media_info": ("currentMediaInfo", "Swift getter-style method"),
     "core.py:SoCo.get_current_transport_info": ("currentTransportInfo", "Swift getter-style method"),
     "core.py:SoCo.get_sonos_playlist_by_attr": ("getSonosPlaylistByAttribute", "typed Swift attribute selector"),
-
-    # Python exception inheritance maps to typed Swift error cases.
     **{f"exceptions.py:{name}": ("SoCoError", "Python exception class represented by a typed SoCoError case") for name in [
         "SoCoException", "UnknownSoCoException", "SoCoUPnPException", "CannotCreateDIDLMetadata",
         "DIDLMetadataError", "MusicServiceException", "MusicServiceAuthException", "UnknownXMLStructure",
         "SoCoSlaveException", "SoCoNotVisibleException", "NotSupportedException", "EventParseException",
     ]},
-
-    # ZoneGroupState backend split is unified in Swift.
     "zonegroupstate.py:ZoneGroupState.update_zgs_by_event": ("updateByEvent", "native event backend"),
     "zonegroupstate.py:ZoneGroupState.update_zgs_by_event_default": ("updateByEvent", "native event backend"),
     "zonegroupstate.py:ZoneGroupState.update_zgs_by_event_asyncio": ("updateByEvent", "native event backend"),
-
-    # asyncio/Twisted/default event backends collapse into one Swift listener,
-    # blocking EventQueue + callbacks + AsyncStream.
     "events_asyncio.py:EventNotifyHandler.notify": ("handleNotification", "native callback handler"),
     "events_asyncio.py:EventListener.async_start": ("start", "native listener start"),
     "events_asyncio.py:EventListener.async_listen": ("start", "native listener start"),
@@ -198,29 +251,17 @@ EXPLICIT_MAPPINGS: dict[str, tuple[str | None, str]] = {
     "events_base.py:EventListenerBase.stop_listening": ("stop", "native listener stop"),
     "events_base.py:SubscriptionBase": ("Subscription", "Swift has one native subscription type"),
     "events_base.py:SubscriptionsMap.get_subscription": ("subscription", "subscription(for:) lookup"),
-
-    # DIDL dynamic runtime facilities become static Swift types.
     "data_structures.py:form_name": ("formDIDLName", "Swift DIDL naming helper"),
     "data_structures.py:DidlResource.to_dict": ("dictionary", "Swift dictionary(removeNils:)"),
     "data_structures.py:DidlObject.to_dict": ("dictionary", "Swift dictionary(removeNils:)"),
     "data_structures.py:DidlMetaClass": (None, "Python runtime metaclass replaced by static Swift DIDL hierarchy"),
-
-    # The service named Queue collides with the public DIDL Queue type in Swift.
     "services.py:Queue": ("QueueService", "UPnP Queue service type; DIDL Queue retains the short name"),
-
-    # Service metadata naming.
     "services.py:Service.compose_args": ("composeArguments", "idiomatic Swift name"),
     "services.py:Service.event_vars": ("eventVariables", "idiomatic Swift name"),
     "services.py:Service.iter_event_vars": ("iterEventVariables", "idiomatic Swift name"),
-
-    # Runtime Python decorator maps to compile-time Swift availability annotations.
     "utils.py:deprecated": (None, "Swift uses @available for deprecated/unavailable declarations"),
-
-    # Alarm/date naming.
     "alarms.py:Alarms.get_next_alarm_datetime": ("nextAlarmDate", "Date-valued Swift API"),
     "alarms.py:Alarm.get_next_alarm_datetime": ("nextAlarmDate", "Date-valued Swift API"),
-
-    # Music-service naming.
     "music_services/music_service.py:MusicServiceSoapClient.get_soap_header": ("soapHeader", "idiomatic Swift name"),
     "music_services/music_service.py:MusicService.get_all_music_services_names": ("allMusicServiceNames", "idiomatic Swift name"),
     "music_services/music_service.py:MusicService.get_data_for_name": ("dataForName", "idiomatic Swift name"),
@@ -241,8 +282,6 @@ def main() -> int:
     bad_targets: list[tuple[PythonAPI, str]] = []
 
     for item in python_api:
-        # Explicit mappings take precedence because a same-named symbol elsewhere
-        # in the module can otherwise create a false positive (notably Queue).
         mapping = EXPLICIT_MAPPINGS.get(item.key)
         if mapping is not None:
             explicit += 1
@@ -252,7 +291,6 @@ def main() -> int:
             continue
 
         normalized = normalize(item.name)
-        matched = False
         if item.kind == "class":
             expected = OWNER_MAPPINGS.get(f"{item.module}:{item.name}", item.name)
             matched = normalize(expected) in swift.types
@@ -277,15 +315,15 @@ def main() -> int:
     print(f"Stale mapping entries: {len(stale)}")
 
     if unclassified:
-        print("\\nUNCLASSIFIED:")
+        print("\nUNCLASSIFIED:")
         for item in unclassified:
             print(f"  {item.key} ({item.kind})")
     if bad_targets:
-        print("\\nMISSING SWIFT TARGETS:")
+        print("\nMISSING SWIFT TARGETS:")
         for item, target in bad_targets:
             print(f"  {item.key} -> {target}")
     if stale:
-        print("\\nSTALE MAPPINGS:")
+        print("\nSTALE MAPPINGS:")
         for key in stale:
             print(f"  {key}")
 

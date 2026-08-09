@@ -518,7 +518,7 @@ public final class EventListener: EventListening, @unchecked Sendable {
             }
             let bindResult = withUnsafePointer(to: &local) { pointer in
                 pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    eventBind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
                 }
             }
             if bindResult == 0, DarwinOrGlibcListen(fd, backlog: 16) == 0 {
@@ -965,6 +965,18 @@ private func eventClose(_ fd: Int32) {
     _ = Glibc.close(fd)
     #else
     _ = Darwin.close(fd)
+    #endif
+}
+
+private func eventBind(
+    _ fd: Int32,
+    _ address: UnsafePointer<sockaddr>,
+    _ length: socklen_t
+) -> Int32 {
+    #if os(Linux)
+    return Glibc.bind(fd, address, length)
+    #else
+    return Darwin.bind(fd, address, length)
     #endif
 }
 
