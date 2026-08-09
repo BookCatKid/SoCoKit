@@ -408,6 +408,17 @@ public struct MusicServiceBrowseItem: Equatable {
 
     /// Whether selecting this item should request child metadata.
     public var canBrowse: Bool { kind == "mediaCollection" }
+
+    /// Whether the provider says this item can be handed to Sonos for playback.
+    /// Tracks often carry the flag inside `trackMetadata`; collections normally
+    /// expose it at the top level. Content-endpoint tracks are playable unless
+    /// explicitly marked otherwise.
+    public var canPlay: Bool {
+        if let value = raw["canPlay"]?.boolValue { return value }
+        if let value = raw["trackMetadata"]?.objectValue?["canPlay"]?.boolValue { return value }
+        if sourceTransport != .smapi, kind == "mediaMetadata" { return true }
+        return kind == "mediaMetadata" && itemType.lowercased() == "track"
+    }
 }
 
 /// A page of items returned by `MusicServiceBrowser`.
@@ -882,6 +893,19 @@ internal final class ConfiguredSMAPIClient {
         return ["value": value]
     }
 
+    func getMediaURI(objectID: String) throws -> String? {
+        let root: SoCoXMLElement
+        do {
+            root = try requestWithRefresh(action: "getMediaURI", fields: [("id", objectID)])
+        } catch let fault as ConfiguredBrowseSOAPFault {
+            if isExpiredFault(fault) { throw SoCoError.musicServiceAuth(fault.description) }
+            throw fault.publicError
+        }
+        guard let result = root.descendants(named: "getMediaURIResult").first else { return nil }
+        let value = result.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
+    }
+
     private func parseMetadataPage(
         root: SoCoXMLElement,
         fallbackIndex: Int
@@ -922,6 +946,18 @@ internal final class ConfiguredSMAPIClient {
 ///
 /// If more than one account for the service is configured, pass the desired
 /// `ConfiguredMusicServiceAccount` explicitly.
+public struct MusicServicePlaybackDescriptor: Equatable {
+    public let uri: String
+    public let metadata: String
+    public let title: String
+
+    public init(uri: String, metadata: String, title: String) {
+        self.uri = uri
+        self.metadata = metadata
+        self.title = title
+    }
+}
+
 public final class MusicServiceBrowser {
     public let device: SoCo
     public let musicService: MusicService
@@ -1111,6 +1147,42 @@ public final class MusicServiceBrowser {
         item: MusicServiceBrowseItem
     ) throws -> [String: MusicServiceBrowseValue] {
         try getMediaMetadata(itemID: item.itemID)
+    }
+
+    /// Resolve a browsed service item into the URI + DIDL metadata Sonos expects
+    /// for playback. This keeps account serial numbers and token descriptors from
+    /// the configured household account instead of assuming serial number zero.
+    public func playbackDescriptor(for item: MusicServiceBrowseItem) throws -> MusicServicePlaybackDescriptor {
+        guard item.canPlay else {
+            throw SoCoError.musicService("This item is not marked playable by the music service")
+        }
+
+        let rawID = item.itemID
+        let quoted = smapiQuote(rawID)
+        let didlID = "0fffffff\(quoted)"
+        let itemType = item.itemType.lowercased()
+        let isTrack = itemType == "track" || (item.kind == "mediaMetadata" && itemType != "stream")
+
+        let fallbackURI: String
+        if isTrack {
+            fallbackURI = "soco://\(didlID)?sid=\(account.serviceID)&sn=\(account.serialNumber)"
+        } else {
+            fallbackURI = "x-rincon-cpcontainer:\(didlID)"
+        }
+        let uri = (isTrack ? (try? client.getMediaURI(objectID: rawID)) ?? nil : nil) ?? fallbackURI
+
+        let didl = try DidlItem(
+            title: item.title.isEmpty ? "DUMMY" : item.title,
+            parentID: "DUMMY",
+            itemID: didlID,
+            resources: [DidlResource(uri: uri, protocolInfo: "DUMMY")],
+            desc: account.udn
+        )
+        return MusicServicePlaybackDescriptor(
+            uri: uri,
+            metadata: try toDIDLString([didl]),
+            title: item.title
+        )
     }
 
     private func browse(

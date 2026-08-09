@@ -220,6 +220,39 @@ final class CoreParityTests: XCTestCase {
         XCTAssertEqual(result["channel"], "BBC Radio 4")
     }
 
+    func testCurrentMediaInfoParsesAlbumArtFromMediaMetadata() throws {
+        let client = MockHTTPClient()
+        let soco = try makeSoCo(client)
+        // Radio streams advertise station artwork in GetMediaInfo metadata even
+        // though GetPositionInfo TrackMetaData omits it. Both absolute URLs and
+        // player-relative /getaa paths must be resolved.
+        let absoluteMetadata = """
+        <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><item><dc:title>KSLC All Classical Portland</dc:title><upnp:class>object.item.audioItem.audioBroadcast</upnp:class><upnp:albumArtURI>https://static.mytuner-radio.net/media/tvos_radios/083/kslc-903.2c277c6d.png</upnp:albumArtURI></item></DIDL-Lite>
+        """
+        enqueueOK(client, action: "GetMediaInfo", fields: [("CurrentURI", "x-sonosapi-stream:r%3a401083?sid=268"), ("CurrentURIMetaData", absoluteMetadata)])
+        let result = try soco.currentMediaInfo()
+        XCTAssertEqual(result["channel"], "KSLC All Classical Portland")
+        XCTAssertEqual(result["album_art"], "https://static.mytuner-radio.net/media/tvos_radios/083/kslc-903.2c277c6d.png")
+
+        let relativeMetadata = """
+        <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><item><dc:title>Station</dc:title><upnp:albumArtURI>/getaa?u=x</upnp:albumArtURI></item></DIDL-Lite>
+        """
+        enqueueOK(client, action: "GetMediaInfo", fields: [("CurrentURI", "x-rincon-mp3radio://example"), ("CurrentURIMetaData", relativeMetadata)])
+        let relativeResult = try soco.currentMediaInfo()
+        XCTAssertEqual(relativeResult["album_art"], "http://192.168.9.10:1400/getaa?u=x")
+    }
+
+    func testCurrentMediaInfoOmitsAlbumArtWhenAbsent() throws {
+        let client = MockHTTPClient()
+        let soco = try makeSoCo(client)
+        let metadata = """
+        <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"><item><dc:title>BBC Radio 4</dc:title></item></DIDL-Lite>
+        """
+        enqueueOK(client, action: "GetMediaInfo", fields: [("CurrentURI", "x-rincon-mp3radio://example"), ("CurrentURIMetaData", metadata)])
+        let result = try soco.currentMediaInfo()
+        XCTAssertNil(result["album_art"])
+    }
+
     func testQueueRemovalAndClearUseOneBasedObjectID() throws {
         let client = MockHTTPClient()
         let soco = try makeSoCo(client)
