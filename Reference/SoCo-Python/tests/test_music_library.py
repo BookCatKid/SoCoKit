@@ -1,0 +1,358 @@
+from unittest.mock import patch
+
+from soco.data_structures import (
+    DidlMusicAlbum,
+    DidlMusicAlbumCompilation,
+    DidlMusicTrack,
+    DidlResource,
+    SearchResult,
+)
+from soco.exceptions import SoCoUPnPException
+
+
+class TestMusicLibrary:
+    def test_search_track_no_result(self, moco):
+        moco.contentDirectory.reset_mock()
+        # Browse returns an exception if the artist can't be found
+        # <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        #  s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+        #   <s:Body>
+        #     <s:Fault>
+        #       <faultcode>s:Client</faultcode>
+        #       <faultstring>UPnPError</faultstring>
+        #       <detail>
+        #         <UPnPError xmlns="urn:schemas-upnp-org:control-1-0">
+        #           <errorCode>701</errorCode>
+        #         </UPnPError>
+        #       </detail>
+        #     </s:Fault>
+        #   </s:Body>
+        # </s:Envelope>
+        moco.contentDirectory.Browse.side_effect = SoCoUPnPException(
+            "No such object", "701", "error XML"
+        )
+
+        result = moco.music_library.search_track("artist")
+
+        assert len(result) == 0
+
+        moco.contentDirectory.Browse.assert_called_once_with(
+            [
+                ("ObjectID", "A:ALBUMARTIST/artist/"),
+                ("BrowseFlag", "BrowseDirectChildren"),
+                ("Filter", "*"),
+                ("StartingIndex", 0),
+                ("RequestedCount", 100000),
+                ("SortCriteria", ""),
+            ]
+        )
+
+    def test_search_track_no_artist_album_track(self, moco):
+        moco.contentDirectory.reset_mock()
+        # Browse returns an empty result set if artist and album and
+        # track cannot be found
+        moco.contentDirectory.Browse.side_effect = None
+        moco.contentDirectory.Browse.return_value = {
+            "NumberReturned": "0",
+            "Result": (
+                '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" '
+                'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" '
+                'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" '
+                'xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"></DIDL-Lite>'
+            ),
+            "TotalMatches": "0",
+            "UpdateID": "0",
+        }
+
+        result = moco.music_library.search_track("artist", "album", "track")
+
+        assert len(result) == 0
+
+        moco.contentDirectory.Browse.assert_called_once_with(
+            [
+                ("ObjectID", "A:ALBUMARTIST/artist/album:track"),
+                ("BrowseFlag", "BrowseDirectChildren"),
+                ("Filter", "*"),
+                ("StartingIndex", 0),
+                ("RequestedCount", 100000),
+                ("SortCriteria", ""),
+            ]
+        )
+
+    def test_search_track_artist_albums(self, moco):
+        moco.contentDirectory.reset_mock()
+        moco.contentDirectory.Browse.side_effect = None
+        moco.contentDirectory.Browse.return_value = {
+            "NumberReturned": "2",
+            "Result": (
+                '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" '
+                'xmlns:ns0="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
+                'xmlns:ns2="urn:schemas-upnp-org:metadata-1-0/upnp/">'
+                '<container id="A:ALBUMARTIST/The%20Artist/First%20Album" '
+                'parentID="A:ALBUMARTIST/The%20Artist" restricted="true">'
+                "<dc:title>First Album</dc:title>"
+                "<ns2:class>object.container.album.musicAlbum</ns2:class>"
+                '<res protocolInfo="x-rincon-playlist:*:*:*">'
+                "x-rincon-playlist:RINCON_000123456789001400#A:ALBUMARTIST/"
+                "The%20Artist/First%20Album</res>"
+                "<dc:creator>The Artist</dc:creator>"
+                "<ns2:albumArtURI>/getaa?u=x-file-cifs%3a%2f%2fserver%2fThe%2520Artist"
+                "%2fFirst%2520Album%2ftrack2.mp3&amp;v=432</ns2:albumArtURI>"
+                "</container>"
+                '<container id="A:ALBUMARTIST/The%20Artist/Second%20Album" '
+                'parentID="A:ALBUMARTIST/The%20Artist" restricted="true">'
+                "<dc:title>Second Album</dc:title>"
+                "<ns2:class>object.container.album.musicAlbum</ns2:class>"
+                '<res protocolInfo="x-rincon-playlist:*:*:*">x-rincon-playlist:'
+                "RINCON_000123456789001400#A:ALBUMARTIST/The%20Artist/Second%20Album"
+                "</res>"
+                "<dc:creator>The Artist</dc:creator>"
+                "<ns2:albumArtURI>/getaa?u=x-file-cifs%3a%2f%2fserver%2fThe%2520Artist"
+                "%2fSecond%2520Album%2ftrack2.mp3&amp;v=432</ns2:albumArtURI>"
+                "</container>"
+                "</DIDL-Lite>"
+            ),
+            "TotalMatches": "2",
+            "UpdateID": "0",
+        }
+        results = moco.music_library.search_track("The Artist")
+
+        assert results.number_returned == 2
+
+        album = results[0]
+        assert album.title == "First Album"
+        assert album.item_id == "A:ALBUMARTIST/The%20Artist/First%20Album"
+        album = results[1]
+        assert album.title == "Second Album"
+        assert album.item_id == "A:ALBUMARTIST/The%20Artist/Second%20Album"
+
+        moco.contentDirectory.Browse.assert_called_once_with(
+            [
+                ("ObjectID", "A:ALBUMARTIST/The%20Artist/"),
+                ("BrowseFlag", "BrowseDirectChildren"),
+                ("Filter", "*"),
+                ("StartingIndex", 0),
+                ("RequestedCount", 100000),
+                ("SortCriteria", ""),
+            ]
+        )
+
+    def test_search_track_artist_album_tracks(self, moco):
+        moco.contentDirectory.reset_mock()
+        moco.contentDirectory.Browse.side_effect = None
+        moco.contentDirectory.Browse.return_value = {
+            "NumberReturned": "3",
+            "Result": (
+                '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" '
+                'xmlns:ns0="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
+                'xmlns:ns1="urn:schemas-upnp-org:metadata-1-0/upnp/">'
+                '<item id="S://server/The%20Artist/The%20Album/'
+                '03%20-%20Track%20Title%201.mp3" '
+                'parentID="A:ALBUMARTIST/The%20Artist/The%20Album" restricted="true">'
+                '<res protocolInfo="x-file-cifs:*:audio/mpeg:*">x-file-cifs://server/'
+                "The%20Artist/The%20Album/03%20-%20Track%20Title%201.mp3</res>"
+                "<ns1:albumArtURI>/getaa?u=x-file-cifs%3a%2f%2fserver%2fThe%2520Artist"
+                "%2fThe%2520Album%2f03%2520-%2520Track%2520Title%25201.mp3&amp;v=432"
+                "</ns1:albumArtURI>"
+                "<dc:title>Track Title 1</dc:title>"
+                "<ns1:class>object.item.audioItem.musicTrack</ns1:class>"
+                "<dc:creator>The Artist</dc:creator>"
+                "<ns1:album>The Album</ns1:album>"
+                "<ns1:originalTrackNumber>3</ns1:originalTrackNumber>"
+                "</item>"
+                '<item id="S://server/The%20Artist/The%20Album/'
+                '04%20-%20Track%20Title%202.m4a" '
+                'parentID="A:ALBUMARTIST/The%20Artist/The%20Album" restricted="true">'
+                '<res protocolInfo="x-file-cifs:*:audio/mp4:*">x-file-cifs://server/'
+                "The%20Artist/The%20Album/04%20-%20Track%20Title%202.m4a</res>"
+                "<ns1:albumArtURI>/getaa?u=x-file-cifs%3a%2f%2fserver%2fThe%2520"
+                "Artist%2fThe%2520Album%2f04%2520-%2520Track%2520Title%25202.m4a"
+                "&amp;v=432</ns1:albumArtURI>"
+                "<dc:title>Track Title 2</dc:title>"
+                "<ns1:class>object.item.audioItem.musicTrack</ns1:class>"
+                "<dc:creator>The Artist</dc:creator>"
+                "<ns1:album>The Album</ns1:album>"
+                "<ns1:originalTrackNumber>4</ns1:originalTrackNumber>"
+                "</item>"
+                '<item id="S://server/The%20Artist/The%20Album/'
+                '05%20-%20Track%20Title%203.mp3" '
+                'parentID="A:ALBUMARTIST/The%20Artist/The%20Album" restricted="true">'
+                '<res protocolInfo="x-file-cifs:*:audio/mpeg:*">'
+                "x-file-cifs://server/The%20Artist/The%20Album/"
+                "05%20-%20Track%20Title%203.mp3</res>"
+                "<ns1:albumArtURI>/getaa?u=x-file-cifs%3a%2f%2fserver%2fThe%2520"
+                "Artist%2fThe%2520Album%2f05%2520-%2520Track%2520Title%25203.mp3"
+                "&amp;v=432</ns1:albumArtURI>"
+                "<dc:title>Track Title 3</dc:title>"
+                "<ns1:class>object.item.audioItem.musicTrack</ns1:class>"
+                "<dc:creator>The Artist</dc:creator>"
+                "<ns1:album>The Album</ns1:album>"
+                "<ns1:originalTrackNumber>5</ns1:originalTrackNumber>"
+                "</item>"
+                "</DIDL-Lite>"
+            ),
+            "TotalMatches": "3",
+            "UpdateID": "0",
+        }
+
+        results = moco.music_library.search_track("The Artist", "The Album")
+
+        assert len(results) == 3
+
+        track = results[0]
+        assert track.title == "Track Title 1"
+        assert (
+            track.item_id
+            == "S://server/The%20Artist/The%20Album/03%20-%20Track%20Title%201.mp3"
+        )
+        track = results[1]
+        assert track.title == "Track Title 2"
+        assert (
+            track.item_id
+            == "S://server/The%20Artist/The%20Album/04%20-%20Track%20Title%202.m4a"
+        )
+        track = results[2]
+        assert track.title == "Track Title 3"
+        assert (
+            track.item_id
+            == "S://server/The%20Artist/The%20Album/05%20-%20Track%20Title%203.mp3"
+        )
+
+        moco.contentDirectory.Browse.assert_called_once_with(
+            [
+                ("ObjectID", "A:ALBUMARTIST/The%20Artist/The%20Album"),
+                ("BrowseFlag", "BrowseDirectChildren"),
+                ("Filter", "*"),
+                ("StartingIndex", 0),
+                ("RequestedCount", 100000),
+                ("SortCriteria", ""),
+            ]
+        )
+
+    def test_soco_library_updating(self, moco):
+        moco.contentDirectory.GetShareIndexInProgress.return_value = {"IsIndexing": "0"}
+        assert not moco.music_library.library_updating
+        moco.contentDirectory.reset_mock()
+        moco.contentDirectory.GetShareIndexInProgress.return_value = {"IsIndexing": "1"}
+        assert moco.music_library.library_updating
+
+    def test_soco_start_library_update(self, moco):
+        moco.contentDirectory.RefreshShareIndex.return_value = True
+        assert moco.music_library.start_library_update()
+        moco.contentDirectory.RefreshShareIndex.assert_called_with(
+            [
+                ("AlbumArtistDisplayOption", ""),
+            ]
+        )
+
+    def test_soco_list_library_shares(self, moco):
+        # Tests with 2, 1 and 0 library shares
+        moco.contentDirectory.Browse.return_value = {
+            "TotalMatches": "2",
+            "NumberReturned": "2",
+            "UpdateID": "0",
+            "Result": (
+                '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" '
+                'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" '
+                'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" '
+                'xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">'
+                '<container id="S://share_host/music_01/Music/Lossless" '
+                'parentID="S:" restricted="true"><dc:title>//share_host/music_01/Music/'
+                "Lossless"
+                "</dc:title><upnp:class>object.container</upnp:class><res "
+                'protocolInfo="x-rincon-playlist:*:*:*">'
+                "x-rincon-playlist:RINCON_XXXXXXXXXXXXX1400"
+                "#S://share_host/music_01/Music/Lossless</res></container>"
+                '<container id="S://share_host_2/music_01" parentID="S:" '
+                'restricted="true">'
+                "<dc:title>//share_host_2/music_01</dc:title>"
+                "<upnp:class>object.container"
+                '</upnp:class><res protocolInfo="x-rincon-playlist:*:*:*">'
+                "x-rincon-playlist"
+                ":RINCON_XXXXXXXXXXXXX1400#S://share_host_2/music_01</res>"
+                "</container></DIDL-Lite>"
+            ),
+        }
+        results = moco.music_library.list_library_shares()
+        assert len(results) == 2
+        assert "//share_host/music_01/Music/Lossless" in results
+        assert "//share_host_2/music_01" in results
+
+        moco.contentDirectory.Browse.return_value = {
+            "TotalMatches": "1",
+            "NumberReturned": "1",
+            "UpdateID": "0",
+            "Result": (
+                '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" '
+                'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" '
+                'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" '
+                'xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">'
+                '<container id="S://share_host/music_01/Music/Lossless" parentID="S:" '
+                'restricted="true">'
+                "<dc:title>//share_host/music_01/Music/Lossless</dc:title>"
+                "<upnp:class>object.container</upnp:class>"
+                '<res protocolInfo="x-rincon-playlist:*:*:*">'
+                "x-rincon-playlist:RINCON_XXXXXXXXXXXXXX400#"
+                "S://share_host/music_01/Music/Lossless</res></container></DIDL-Lite>"
+            ),
+        }
+        results = moco.music_library.list_library_shares()
+        assert len(results) == 1
+        assert "//share_host/music_01/Music/Lossless" in results
+
+        moco.contentDirectory.Browse.return_value = {
+            "TotalMatches": "0",
+            "NumberReturned": "0",
+            "UpdateID": "0",
+            "Result": (
+                '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" '
+                'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" '
+                'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" '
+                'xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"/>'
+            ),
+        }
+        results = moco.music_library.list_library_shares()
+        assert len(results) == 0
+
+    def test_soco_delete_library_share(self, moco):
+        share = "//host/share"
+        moco.music_library.delete_library_share(share)
+        moco.contentDirectory.DestroyObject.assert_called_once_with(
+            [("ObjectID", "S:" + share)]
+        )
+
+    def test_get_albums_for_artist_includes_subclasses(self, moco):
+        """get_albums_for_artist must include DidlMusicAlbum subclasses.
+
+        Previously used ``item.__class__ == DidlMusicAlbum`` which silently
+        excluded subclasses such as DidlMusicAlbumCompilation.
+        """
+        res = DidlResource(
+            uri="x-rincon-playlist:RINCON_000XXX1400#A:1",
+            protocol_info="x-rincon-playlist:*:*:*",
+        )
+        album = DidlMusicAlbum(
+            title="Album", parent_id="A:", item_id="A:1", resources=[res]
+        )
+        compilation = DidlMusicAlbumCompilation(
+            title="Compilation", parent_id="A:", item_id="A:2", resources=[res]
+        )
+        track = DidlMusicTrack(
+            title="Track", parent_id="Q:0", item_id="Q:0/1", resources=[res]
+        )
+        fake_result = SearchResult(
+            [album, compilation, track],
+            search_type="albums",
+            number_returned=3,
+            total_matches=3,
+            update_id="0",
+        )
+        with patch.object(
+            moco.music_library, "get_album_artists", return_value=fake_result
+        ):
+            result = moco.music_library.get_albums_for_artist("Some Artist")
+
+        assert len(result) == 2
+        assert album in result
+        assert compilation in result
+        assert track not in result
